@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ম্যাক্সিমাম একুরেসি সাইট চেকার (Pro)</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f4f7f6; color: #333; }
+        .container { max-width: 1100px; margin: auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #2c3e50; }
+        textarea { width: 100%; height: 200px; padding: 15px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; box-sizing: border-box; transition: 0.3s; }
+        textarea:focus { border-color: #3498db; outline: none; }
+        .btn-group { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+        button { flex: 1; min-width: 140px; padding: 12px; font-weight: bold; cursor: pointer; border: none; border-radius: 6px; color: white; transition: 0.3s; }
+        .start-btn { background: #27ae60; }
+        .filter-btn { background: #f39c12; }
+        .reset-btn { background: #e74c3c; }
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+        
+        .stats { display: flex; justify-content: space-around; background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 15px; font-weight: bold; border: 1px solid #eee; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border-bottom: 1px solid #eee; padding: 12px; text-align: left; }
+        th { background: #f8f9fa; font-size: 13px; color: #7f8c8d; }
+        
+        .status-live { color: #27ae60; background: #eafaf1; padding: 4px 10px; border-radius: 15px; font-weight: bold; font-size: 12px; }
+        .status-dead { color: #e74c3c; background: #fdf2f2; padding: 4px 10px; border-radius: 15px; font-weight: bold; font-size: 12px; }
+        .status-checking { color: #f39c12; animation: blink 1s infinite; font-weight: bold; }
+        
+        .action-btn { text-decoration: none; color: white; background: #3498db; padding: 5px 10px; border-radius: 4px; font-size: 11px; margin-right: 5px; font-weight: bold; }
+        .copy-btn { background: #9b59b6; cursor: pointer; border: none; color: white; padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        
+        @keyframes blink { 50% { opacity: 0.5; } }
+        #toast { position: fixed; bottom: 20px; right: 20px; background: #2c3e50; color: white; padding: 12px 20px; border-radius: 6px; display: none; z-index: 1000; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Web Site live check </h2>
+    
+    <div class="stats" id="statBox" style="display:none;">
+        <div style="color:#2c3e50">মোট: <span id="total">0</span></div>
+        <div style="color:#27ae60">লাইভ: <span id="live">0</span></div>
+        <div style="color:#e74c3c">ডেড/ব্লকড: <span id="dead">0</span></div>
+    </div>
+
+    <textarea id="inputList" autocomplete="off" spellcheck="false" placeholder="এখানে ওয়েবসাইটের লিস্ট পেস্ট করুন..."></textarea>
+    
+    <div class="btn-group">
+        <button class="start-btn" onclick="startChecking()">চেক শুরু করুন</button>
+        <button class="filter-btn" id="filterBtn" onclick="toggleDead()">শুধু Dead দেখান</button>
+        <button class="reset-btn" onclick="resetAll()">সব ক্লিয়ার (Reset)</button>
+    </div>
+
+    <table id="resultTable">
+        <thead>
+            <tr>
+                <th style="width: 50%;">ইউআরএল (URL)</th>
+                <th style="width: 20%;">স্ট্যাটাস (Status)</th>
+                <th style="width: 30%;">অ্যাকশন (Action)</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div id="toast">কপি হয়েছে!</div>
+
+<script>
+    let activeChecking = false;
+    let onlyDeadVisible = false;
+
+    function notify(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.style.display = 'block';
+        setTimeout(() => t.style.display = 'none', 2000);
+    }
+
+    function copyVal(val) {
+        navigator.clipboard.writeText(val).then(() => notify("কপি হয়েছে!"));
+    }
+
+    async function checkSite(url) {
+        if (!url.startsWith('http')) url = 'https://' + url;
+        
+        // মেথড ১: সরাসরি No-CORS রিকোয়েস্ট (সবচেয়ে দ্রুত)
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 5000);
+            await fetch(url, { mode: 'no-cors', signal: controller.signal });
+            clearTimeout(id);
+            return true;
+        } catch (e) {
+            // মেথড ২: যদি সরাসরি না হয়, তবে ৪টি শক্তিশালী প্রক্সি দিয়ে ট্রাই করবে
+            const proxies = [
+                `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&url=${encodeURIComponent(url)}`,
+                `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+                `https://corsproxy.io/?${encodeURIComponent(url)}`,
+                `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`
+            ];
+
+            for (let p of proxies) {
+                try {
+                    const controller = new AbortController();
+                    const tid = setTimeout(() => controller.abort(), 6000);
+                    const res = await fetch(p, { signal: controller.signal });
+                    if (res.ok) return true;
+                } catch (err) { continue; }
+            }
+        }
+        return false;
+    }
+
+    async function startChecking() {
+        if (activeChecking) return;
+        const data = document.getElementById('inputList').value;
+        const lines = [...new Set(data.split('\n').map(l => l.trim()).filter(l => l !== ""))];
+        if (lines.length === 0) return alert("লিস্ট ফাঁকা!");
+
+        const tbody = document.querySelector('#resultTable tbody');
+        tbody.innerHTML = "";
+        activeChecking = true;
+        let lCount = 0, dCount = 0;
+
+        document.getElementById('statBox').style.display = 'flex';
+        document.getElementById('total').innerText = lines.length;
+
+        for (let line of lines) {
+            if (!activeChecking) break;
+            const row = tbody.insertRow();
+            row.insertCell(0).innerText = line;
+            const sCell = row.insertCell(1);
+            sCell.innerHTML = '<span class="status-checking">Checking...</span>';
+            const aCell = row.insertCell(2);
+
+            // অ্যাকশন বাটন
+            const vUrl = line.startsWith('http') ? line : 'https://' + line;
+            aCell.innerHTML = `<button class="copy-btn" onclick="copyVal('${line}')">Copy</button>
+                               <a href="${vUrl}" target="_blank" class="action-btn">Visit</a>`;
+
+            const isLive = await checkSite(line);
+
+            if (isLive) {
+                sCell.innerHTML = '<span class="status-live">Live</span>';
+                lCount++;
+            } else {
+                sCell.innerHTML = '<span class="status-dead">Dead / Blocked</span>';
+                row.classList.add('dead-row');
+                dCount++;
+            }
+            document.getElementById('live').innerText = lCount;
+            document.getElementById('dead').innerText = dCount;
+        }
+        activeChecking = false;
+        alert("চেকিং সম্পন্ন হয়েছে!");
+    }
+
+    function toggleDead() {
+        onlyDeadVisible = !onlyDeadVisible;
+        const rows = document.querySelectorAll('#resultTable tbody tr');
+        rows.forEach(r => {
+            if (onlyDeadVisible) {
+                r.style.display = r.classList.contains('dead-row') ? 'table-row' : 'none';
+                document.getElementById('filterBtn').innerText = "সবগুলো দেখান";
+            } else {
+                r.style.display = 'table-row';
+                document.getElementById('filterBtn').innerText = "শুধু Dead দেখান";
+            }
+        });
+    }
+
+    function resetAll() {
+        activeChecking = false;
+        document.getElementById('inputList').value = "";
+        document.querySelector('#resultTable tbody').innerHTML = "";
+        document.getElementById('statBox').style.display = 'none';
+        console.clear();
+        notify("সব ক্লিয়ার করা হয়েছে!");
+    }
+</script>
+
+</body>
+</html>
